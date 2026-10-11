@@ -1,6 +1,8 @@
 #include <iostream>
 #include <string>
 #include "cache/cache.h"
+#include <chrono>
+#include <thread>
 
 bool testSetAndGet() {
     Cache cache;
@@ -51,6 +53,26 @@ bool testRemoveMissingKey() {
     return !cache.remove("user:999");
 }
 
+
+bool testEntryExpires() {
+    Cache cache;
+
+    cache.set("session:101", "active", std::chrono::seconds(1));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+
+    return !cache.get("session:101").has_value();
+}
+
+bool testEntryWithoutTTLDoesNotExpire() {
+    Cache cache;
+
+    cache.set("user:101", "Monish");
+
+    return cache.get("user:101").value_or("") == "Monish";
+}
+
+
 int main() {
     int passed = 0;
     int failed = 0;
@@ -71,7 +93,8 @@ int main() {
     runTest("Remove existing key", testRemoveExistingKey);
     runTest("Retrieve removed key", testRemovedKeyCannotBeRetrieved);
     runTest("Remove missing key", testRemoveMissingKey);
-
+    runTest("Entry expires after TTL", testEntryExpires);
+    runTest("Entry without TTL does not expire", testEntryWithoutTTLDoesNotExpire);
     std::cout << "\nResults: " << passed
               << " passed, " << failed << " failed\n";
 
