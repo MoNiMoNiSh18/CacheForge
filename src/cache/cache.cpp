@@ -15,7 +15,7 @@ void Cache::set(
 }
 
 
-std::optional<std::string> Cache::get(const std::string& key) const {
+std::optional<std::string> Cache::get(const std::string& key) {
     auto it = data.find(key);
 
     if (it == data.end()) {
@@ -26,12 +26,18 @@ std::optional<std::string> Cache::get(const std::string& key) const {
 
     if (expiration.has_value() &&
         std::chrono::steady_clock::now() >= expiration.value()) {
+        data.erase(it);
         return std::nullopt;
     }
 
     return it->second.value;
 }
 
+
 bool Cache::remove(const std::string& key) {
     return data.erase(key) > 0;
+}
+
+std::size_t Cache::size() const {
+    return data.size();
 }

@@ -72,6 +72,21 @@ bool testEntryWithoutTTLDoesNotExpire() {
     return cache.get("user:101").value_or("") == "Monish";
 }
 
+bool testExpiredEntryIsRemovedFromCache() {
+    Cache cache;
+
+    cache.set("session:101", "active", std::chrono::seconds(1));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+
+    if (cache.size() != 1) {
+        return false;
+    }
+
+    auto value = cache.get("session:101");
+
+    return !value.has_value() && cache.size() == 0;
+}
 
 int main() {
     int passed = 0;
@@ -95,6 +110,7 @@ int main() {
     runTest("Remove missing key", testRemoveMissingKey);
     runTest("Entry expires after TTL", testEntryExpires);
     runTest("Entry without TTL does not expire", testEntryWithoutTTLDoesNotExpire);
+    runTest("Expired entry is removed from cache",testExpiredEntryIsRemovedFromCache);
     std::cout << "\nResults: " << passed
               << " passed, " << failed << " failed\n";
 
