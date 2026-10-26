@@ -1,17 +1,47 @@
 #include "cache/cache.h"
+#include <stdexcept>
+
+Cache::Cache(std::size_t capacity)
+    : capacity(capacity)
+{
+    if (this->capacity == 0) {
+        throw std::invalid_argument(
+            "Cache capacity must be greater than zero"
+        );
+    }
+}
+
 
 void Cache::set(
     const std::string& key,
     const std::string& value,
     std::chrono::seconds ttl
 ) {
-    if (ttl == std::chrono::seconds::zero()) {
-        data[key] = CacheEntry{value, std::nullopt};
-    } else {
-        auto expirationTime = std::chrono::steady_clock::now() + ttl;
+    cleanupExpired();
 
-        data[key] = CacheEntry{value, expirationTime};
+    CacheEntry entry;
+
+    entry.value = value;
+
+    if (ttl != std::chrono::seconds::zero()) {
+        entry.expiresAt =
+            std::chrono::steady_clock::now() + ttl;
+    } else {
+        entry.expiresAt = std::nullopt;
     }
+
+    auto it = data.find(key);
+
+    if (it != data.end()) {
+        it->second = entry;
+        return;
+    }
+
+    if (data.size() >= capacity) {
+        throw std::overflow_error("Cache capacity reached");
+    }
+
+    data[key] = entry;
 }
 
 

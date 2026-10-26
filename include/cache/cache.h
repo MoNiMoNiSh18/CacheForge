@@ -13,16 +13,23 @@ struct CacheEntry {
 
 class Cache {
 public:
-    std::size_t cleanupExpired();
-    std::size_t size() const;
+    explicit Cache(std::size_t capacity = 1000);
+
     void set(
-    const std::string& key,
-    const std::string& value,
-    std::chrono::seconds ttl = std::chrono::seconds::zero()
-);
+        const std::string& key,
+        const std::string& value,
+        std::chrono::seconds ttl = std::chrono::seconds::zero()
+    );
+
     std::optional<std::string> get(const std::string& key);
+
     bool remove(const std::string& key);
+
+    std::size_t size() const;
+
+    std::size_t cleanupExpired();
 
 private:
     std::unordered_map<std::string, CacheEntry> data;
+    const std::size_t capacity;
 };

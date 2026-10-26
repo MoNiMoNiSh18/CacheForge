@@ -122,6 +122,56 @@ bool testCleanupPreservesNonExpiredEntries() {
 }
 
 
+bool testCapacityLimit() {
+    Cache cache(2);
+
+    cache.set("A", "1");
+    cache.set("B", "2");
+
+    if (cache.size() != 2) {
+        return false;
+    }
+
+    try {
+        cache.set("C", "3");
+    } catch (const std::overflow_error&) {
+        return cache.size() == 2 &&
+               !cache.get("C").has_value();
+    }
+
+    return false;
+}
+
+bool testOverwriteWhenFull() {
+    Cache cache(2);
+
+    cache.set("A", "1");
+    cache.set("B", "2");
+    cache.set("A", "updated");
+
+    return cache.size() == 2 &&
+           cache.get("A") == std::optional<std::string>("updated");
+}
+
+bool testZeroCapacityRejected() {
+    try {
+        Cache cache(0);
+    } catch (const std::invalid_argument&) {
+        return true;
+    }
+
+    return false;
+}
+
+bool testDefaultCapacity() {
+    Cache cache;
+
+    cache.set("A", "1");
+
+    return cache.get("A") == std::optional<std::string>("1");
+}
+
+
 int main() {
     int passed = 0;
     int failed = 0;
@@ -147,8 +197,10 @@ int main() {
     runTest("Expired entry is removed from cache",testExpiredEntryIsRemovedFromCache);
     runTest("Cleanup removes multiple expired entries",testCleanupRemovesMultipleExpiredEntries);
     runTest("Cleanup preserves non-expired entries",testCleanupPreservesNonExpiredEntries);
-    std::cout << "\nResults: " << passed
-              << " passed, " << failed << " failed\n";
-
+    runTest("Capacity limit", testCapacityLimit);
+    runTest("Overwrite when full", testOverwriteWhenFull);
+    runTest("Reject zero capacity", testZeroCapacityRejected);
+    runTest("Default capacity", testDefaultCapacity);
+    std::cout << "\nResults: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
 }
