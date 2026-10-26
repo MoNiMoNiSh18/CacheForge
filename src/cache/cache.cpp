@@ -41,3 +41,24 @@ bool Cache::remove(const std::string& key) {
 std::size_t Cache::size() const {
     return data.size();
 }
+
+
+std::size_t Cache::cleanupExpired() {
+    std::size_t removed = 0;
+
+    auto it = data.begin();
+
+    while (it != data.end()) {
+        const auto& expiration = it->second.expiresAt;
+
+        if (expiration.has_value() &&
+            std::chrono::steady_clock::now() >= expiration.value()) {
+            it = data.erase(it);
+            ++removed;
+        } else {
+            ++it;
+        }
+    }
+
+    return removed;
+}

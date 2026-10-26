@@ -13,6 +13,7 @@ struct CacheEntry {
 
 class Cache {
 public:
+    std::size_t cleanupExpired();
     std::size_t size() const;
     void set(
     const std::string& key,

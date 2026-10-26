@@ -88,6 +88,40 @@ bool testExpiredEntryIsRemovedFromCache() {
     return !value.has_value() && cache.size() == 0;
 }
 
+
+bool testCleanupRemovesMultipleExpiredEntries() {
+    Cache cache;
+
+    cache.set("session:1", "A", std::chrono::seconds(1));
+    cache.set("session:2", "B", std::chrono::seconds(1));
+    cache.set("session:3", "C", std::chrono::seconds(1));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+
+    const auto removed = cache.cleanupExpired();
+
+    return removed == 3 && cache.size() == 0;
+}
+
+bool testCleanupPreservesNonExpiredEntries() {
+    Cache cache;
+
+    cache.set("session:expired", "A", std::chrono::seconds(1));
+    cache.set("session:active", "B", std::chrono::seconds(30));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+
+    const auto removed = cache.cleanupExpired();
+
+    auto activeValue = cache.get("session:active");
+
+    return removed == 1 &&
+           cache.size() == 1 &&
+           activeValue.has_value() &&
+           activeValue.value() == "B";
+}
+
+
 int main() {
     int passed = 0;
     int failed = 0;
@@ -111,6 +145,8 @@ int main() {
     runTest("Entry expires after TTL", testEntryExpires);
     runTest("Entry without TTL does not expire", testEntryWithoutTTLDoesNotExpire);
     runTest("Expired entry is removed from cache",testExpiredEntryIsRemovedFromCache);
+    runTest("Cleanup removes multiple expired entries",testCleanupRemovesMultipleExpiredEntries);
+    runTest("Cleanup preserves non-expired entries",testCleanupPreservesNonExpiredEntries);
     std::cout << "\nResults: " << passed
               << " passed, " << failed << " failed\n";
 
