@@ -277,6 +277,40 @@ bool testConcurrentAccess() {
     return success.load() && cache.size() == 0;
 }
 
+bool testCacheStatistics() {
+    Cache cache(2);
+
+    cache.set("a", "1");
+    cache.set("b", "2");
+
+    cache.set("a", "updated");
+
+    cache.get("a");
+    cache.get("missing");
+
+    cache.set("c", "3");
+
+    const CacheStats stats = cache.getStats();
+
+    return stats.hits == 1 &&
+           stats.misses == 1 &&
+           stats.insertions == 3 &&
+           stats.evictions == 1;
+}
+
+bool testCacheHitRate() {
+    Cache cache;
+
+    if (cache.getStats().hitRate() != 0.0) {
+        return false;
+    }
+
+    cache.set("a", "value");
+    cache.get("a");       
+    cache.get("missing"); 
+
+    return cache.getStats().hitRate() == 50.0;
+}
 
 int main() {
     int passed = 0;
@@ -311,6 +345,8 @@ int main() {
     runTest("Overwrite when full", testOverwriteWhenFull);
     runTest("LRU with TTL and cleanup", testLRUWithTTLAndCleanup);
     runTest("Concurrent access", testConcurrentAccess);
+    runTest("Cache statistics", testCacheStatistics);
+    runTest("Cache hit rate", testCacheHitRate);
     std::cout << "\nResults: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
 }

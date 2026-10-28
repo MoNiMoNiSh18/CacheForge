@@ -15,11 +15,27 @@ struct CacheEntry {
     std::list<std::string>::iterator lruPosition;
 };
 
+struct CacheStats {
+    std::size_t hits = 0;
+    std::size_t misses = 0;
+    std::size_t insertions = 0;
+    std::size_t evictions = 0;
+
+    double hitRate() const noexcept {
+        const std::size_t total = hits + misses;
+
+        if (total == 0) {
+            return 0.0;
+        }
+
+        return (static_cast<double>(hits) / total) * 100.0;
+    }
+};
+
 class Cache {
 public:
     explicit Cache(std::size_t capacity = 1000);
 
-    // A cache contains internal list iterators, so copying is disabled.
     Cache(const Cache&) = delete;
     Cache& operator=(const Cache&) = delete;
 
@@ -37,10 +53,13 @@ public:
 
     std::size_t cleanupExpired();
 
+    CacheStats getStats() const;
+
 private:
     std::unordered_map<std::string, CacheEntry> data;
     std::list<std::string> usageOrder;
     const std::size_t capacity;
+    CacheStats stats;
     std::size_t cleanupExpiredUnlocked();
     mutable std::mutex mutex;
 };

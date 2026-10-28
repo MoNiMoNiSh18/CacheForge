@@ -53,13 +53,16 @@ void Cache::set(
         usageOrder.pop_front();
         throw;
     }
+    ++stats.insertions;
 
-    if (data.size() > capacity) {
-        const std::string leastUsedKey = usageOrder.back();
+   if (data.size() > capacity) {
+    const std::string leastUsedKey = usageOrder.back();
 
-        data.erase(leastUsedKey);
-        usageOrder.pop_back();
-    }
+    data.erase(leastUsedKey);
+    usageOrder.pop_back();
+
+    ++stats.evictions;
+}
 }
 
 std::optional<std::string> Cache::get(const std::string& key) {
@@ -68,25 +71,34 @@ std::optional<std::string> Cache::get(const std::string& key) {
     auto it = data.find(key);
 
     if (it == data.end()) {
+        ++stats.misses;
         return std::nullopt;
     }
-
     const auto& expiration = it->second.expiresAt;
 
     if (expiration.has_value() &&
         std::chrono::steady_clock::now() >= expiration.value()) {
+
         usageOrder.erase(it->second.lruPosition);
         data.erase(it);
+        ++stats.misses;
+
         return std::nullopt;
     }
-
     usageOrder.splice(
-        usageOrder.begin(),
-        usageOrder,
-        it->second.lruPosition
-    );
+    usageOrder.begin(),
+    usageOrder,
+    it->second.lruPosition
+);
 
+    ++stats.hits;
     return it->second.value;
+        
+}
+
+CacheStats Cache::getStats() const {
+    std::lock_guard<std::mutex> lock(mutex);
+    return stats;
 }
 
 bool Cache::remove(const std::string& key) {
