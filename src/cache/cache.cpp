@@ -1,4 +1,3 @@
-
 #include "cache/cache.h"
 
 #include <stdexcept>
@@ -18,7 +17,9 @@ void Cache::set(
     const std::string& value,
     std::chrono::seconds ttl
 ) {
-    cleanupExpired();
+    std::lock_guard<std::mutex> lock(mutex);
+
+    cleanupExpiredUnlocked();
 
     std::optional<std::chrono::steady_clock::time_point> expiration;
 
@@ -26,7 +27,6 @@ void Cache::set(
         expiration = std::chrono::steady_clock::now() + ttl;
     }
 
-    // Updating an existing key does not consume extra capacity.
     auto it = data.find(key);
 
     if (it != data.end()) {
@@ -42,15 +42,6 @@ void Cache::set(
         return;
     }
 
-    // Evict the least recently used entry if the cache is full.
-    if (data.size() >= capacity) {
-        const std::string& leastUsedKey = usageOrder.back();
-
-        data.erase(leastUsedKey);
-        usageOrder.pop_back();
-    }
-
-    // Add the new key to the most recently used position.
     usageOrder.push_front(key);
 
     try {
@@ -62,9 +53,18 @@ void Cache::set(
         usageOrder.pop_front();
         throw;
     }
+
+    if (data.size() > capacity) {
+        const std::string leastUsedKey = usageOrder.back();
+
+        data.erase(leastUsedKey);
+        usageOrder.pop_back();
+    }
 }
 
 std::optional<std::string> Cache::get(const std::string& key) {
+    std::lock_guard<std::mutex> lock(mutex);
+
     auto it = data.find(key);
 
     if (it == data.end()) {
@@ -80,7 +80,6 @@ std::optional<std::string> Cache::get(const std::string& key) {
         return std::nullopt;
     }
 
-    // A successful access makes this entry the most recently used.
     usageOrder.splice(
         usageOrder.begin(),
         usageOrder,
@@ -91,6 +90,8 @@ std::optional<std::string> Cache::get(const std::string& key) {
 }
 
 bool Cache::remove(const std::string& key) {
+    std::lock_guard<std::mutex> lock(mutex);
+
     auto it = data.find(key);
 
     if (it == data.end()) {
@@ -104,10 +105,16 @@ bool Cache::remove(const std::string& key) {
 }
 
 std::size_t Cache::size() const {
+    std::lock_guard<std::mutex> lock(mutex);
     return data.size();
 }
 
 std::size_t Cache::cleanupExpired() {
+    std::lock_guard<std::mutex> lock(mutex);
+    return cleanupExpiredUnlocked();
+}
+
+std::size_t Cache::cleanupExpiredUnlocked() {
     std::size_t removed = 0;
     auto it = data.begin();
 

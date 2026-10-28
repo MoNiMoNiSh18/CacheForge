@@ -1,8 +1,10 @@
+
 #pragma once
 
 #include <chrono>
 #include <cstddef>
 #include <list>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -16,6 +18,10 @@ struct CacheEntry {
 class Cache {
 public:
     explicit Cache(std::size_t capacity = 1000);
+
+    // A cache contains internal list iterators, so copying is disabled.
+    Cache(const Cache&) = delete;
+    Cache& operator=(const Cache&) = delete;
 
     void set(
         const std::string& key,
@@ -35,4 +41,6 @@ private:
     std::unordered_map<std::string, CacheEntry> data;
     std::list<std::string> usageOrder;
     const std::size_t capacity;
+    std::size_t cleanupExpiredUnlocked();
+    mutable std::mutex mutex;
 };

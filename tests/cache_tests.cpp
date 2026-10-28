@@ -3,6 +3,9 @@
 #include "cache/cache.h"
 #include <chrono>
 #include <thread>
+#include <atomic>
+#include <thread>
+#include <vector>
 
 bool testSetAndGet() {
     Cache cache;
@@ -212,6 +215,69 @@ bool testLRUWithTTLAndCleanup() {
 }
 
 
+bool testConcurrentAccess() {
+    constexpr int threadCount = 8;
+    constexpr int entriesPerThread = 250;
+
+    Cache cache(threadCount * entriesPerThread);
+    std::atomic<bool> success{true};
+    std::vector<std::thread> workers;
+
+    // Phase 1: concurrent writes and reads.
+    for (int t = 0; t < threadCount; ++t) {
+        workers.emplace_back([&, t]() {
+            for (int i = 0; i < entriesPerThread; ++i) {
+                const std::string key =
+                    "thread-" + std::to_string(t) +
+                    "-key-" + std::to_string(i);
+
+                const std::string expected = std::to_string(i);
+
+                cache.set(key, expected);
+
+                const auto value = cache.get(key);
+
+                if (!value || *value != expected) {
+                    success.store(false);
+                }
+            }
+        });
+    }
+
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    if (!success.load() ||
+        cache.size() != threadCount * entriesPerThread) {
+        return false;
+    }
+
+    workers.clear();
+
+    // Phase 2: concurrently remove each thread's own entries.
+    for (int t = 0; t < threadCount; ++t) {
+        workers.emplace_back([&, t]() {
+            for (int i = 0; i < entriesPerThread; ++i) {
+                const std::string key =
+                    "thread-" + std::to_string(t) +
+                    "-key-" + std::to_string(i);
+
+                if (!cache.remove(key)) {
+                    success.store(false);
+                }
+            }
+        });
+    }
+
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    return success.load() && cache.size() == 0;
+}
+
+
 int main() {
     int passed = 0;
     int failed = 0;
@@ -244,6 +310,7 @@ int main() {
     runTest("LRU eviction", testLRUEviction);
     runTest("Overwrite when full", testOverwriteWhenFull);
     runTest("LRU with TTL and cleanup", testLRUWithTTLAndCleanup);
+    runTest("Concurrent access", testConcurrentAccess);
     std::cout << "\nResults: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
 }

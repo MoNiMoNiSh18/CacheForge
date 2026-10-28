@@ -1,4 +1,3 @@
-
 cmake_minimum_required(VERSION 3.16)
 
 project(CacheForge
@@ -10,6 +9,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+find_package(Threads REQUIRED)
+
 add_executable(cacheforge
     src/main.cpp
     src/cache/cache.cpp
@@ -20,8 +21,6 @@ target_include_directories(cacheforge
         ${PROJECT_SOURCE_DIR}/include
 )
 
-enable_testing()
-
 add_executable(cache_tests
     tests/cache_tests.cpp
     src/cache/cache.cpp
@@ -31,6 +30,10 @@ target_include_directories(cache_tests
     PRIVATE
         ${PROJECT_SOURCE_DIR}/include
 )
+
+target_link_libraries(cache_tests PRIVATE Threads::Threads)
+
+enable_testing()
 
 add_test(
     NAME CacheForgeTests
