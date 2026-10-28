@@ -1,7 +1,8 @@
 #pragma once
 
-#include <cstddef>
 #include <chrono>
+#include <cstddef>
+#include <list>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -9,6 +10,7 @@
 struct CacheEntry {
     std::string value;
     std::optional<std::chrono::steady_clock::time_point> expiresAt;
+    std::list<std::string>::iterator lruPosition;
 };
 
 class Cache {
@@ -31,5 +33,6 @@ public:
 
 private:
     std::unordered_map<std::string, CacheEntry> data;
+    std::list<std::string> usageOrder;
     const std::size_t capacity;
 };

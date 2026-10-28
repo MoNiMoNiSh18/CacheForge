@@ -1,4 +1,6 @@
+
 #include "cache/cache.h"
+
 #include <stdexcept>
 
 Cache::Cache(std::size_t capacity)
@@ -11,7 +13,6 @@ Cache::Cache(std::size_t capacity)
     }
 }
 
-
 void Cache::set(
     const std::string& key,
     const std::string& value,
@@ -19,31 +20,49 @@ void Cache::set(
 ) {
     cleanupExpired();
 
-    CacheEntry entry;
-
-    entry.value = value;
+    std::optional<std::chrono::steady_clock::time_point> expiration;
 
     if (ttl != std::chrono::seconds::zero()) {
-        entry.expiresAt =
-            std::chrono::steady_clock::now() + ttl;
-    } else {
-        entry.expiresAt = std::nullopt;
+        expiration = std::chrono::steady_clock::now() + ttl;
     }
 
+    // Updating an existing key does not consume extra capacity.
     auto it = data.find(key);
 
     if (it != data.end()) {
-        it->second = entry;
+        it->second.value = value;
+        it->second.expiresAt = expiration;
+
+        usageOrder.splice(
+            usageOrder.begin(),
+            usageOrder,
+            it->second.lruPosition
+        );
+
         return;
     }
 
+    // Evict the least recently used entry if the cache is full.
     if (data.size() >= capacity) {
-        throw std::overflow_error("Cache capacity reached");
+        const std::string& leastUsedKey = usageOrder.back();
+
+        data.erase(leastUsedKey);
+        usageOrder.pop_back();
     }
 
-    data[key] = entry;
-}
+    // Add the new key to the most recently used position.
+    usageOrder.push_front(key);
 
+    try {
+        data.emplace(
+            key,
+            CacheEntry{value, expiration, usageOrder.begin()}
+        );
+    } catch (...) {
+        usageOrder.pop_front();
+        throw;
+    }
+}
 
 std::optional<std::string> Cache::get(const std::string& key) {
     auto it = data.find(key);
@@ -56,26 +75,40 @@ std::optional<std::string> Cache::get(const std::string& key) {
 
     if (expiration.has_value() &&
         std::chrono::steady_clock::now() >= expiration.value()) {
+        usageOrder.erase(it->second.lruPosition);
         data.erase(it);
         return std::nullopt;
     }
 
+    // A successful access makes this entry the most recently used.
+    usageOrder.splice(
+        usageOrder.begin(),
+        usageOrder,
+        it->second.lruPosition
+    );
+
     return it->second.value;
 }
 
-
 bool Cache::remove(const std::string& key) {
-    return data.erase(key) > 0;
+    auto it = data.find(key);
+
+    if (it == data.end()) {
+        return false;
+    }
+
+    usageOrder.erase(it->second.lruPosition);
+    data.erase(it);
+
+    return true;
 }
 
 std::size_t Cache::size() const {
     return data.size();
 }
 
-
 std::size_t Cache::cleanupExpired() {
     std::size_t removed = 0;
-
     auto it = data.begin();
 
     while (it != data.end()) {
@@ -83,6 +116,7 @@ std::size_t Cache::cleanupExpired() {
 
         if (expiration.has_value() &&
             std::chrono::steady_clock::now() >= expiration.value()) {
+            usageOrder.erase(it->second.lruPosition);
             it = data.erase(it);
             ++removed;
         } else {

@@ -127,31 +127,14 @@ bool testCapacityLimit() {
 
     cache.set("A", "1");
     cache.set("B", "2");
-
-    if (cache.size() != 2) {
-        return false;
-    }
-
-    try {
-        cache.set("C", "3");
-    } catch (const std::overflow_error&) {
-        return cache.size() == 2 &&
-               !cache.get("C").has_value();
-    }
-
-    return false;
-}
-
-bool testOverwriteWhenFull() {
-    Cache cache(2);
-
-    cache.set("A", "1");
-    cache.set("B", "2");
-    cache.set("A", "updated");
+    cache.set("C", "3");
 
     return cache.size() == 2 &&
-           cache.get("A") == std::optional<std::string>("updated");
+           cache.get("A") == std::nullopt &&
+           cache.get("B") == std::optional<std::string>("2") &&
+           cache.get("C") == std::optional<std::string>("3");
 }
+
 
 bool testZeroCapacityRejected() {
     try {
@@ -169,6 +152,63 @@ bool testDefaultCapacity() {
     cache.set("A", "1");
 
     return cache.get("A") == std::optional<std::string>("1");
+}
+
+
+bool testLRUEviction() {
+    Cache cache(3);
+
+    cache.set("A", "1");
+    cache.set("B", "2");
+    cache.set("C", "3");
+
+    if (cache.get("A") != std::optional<std::string>("1")) {
+        return false;
+    }
+
+    cache.set("D", "4");
+
+    return cache.size() == 3 &&
+           cache.get("B") == std::nullopt &&
+           cache.get("A") == std::optional<std::string>("1") &&
+           cache.get("C") == std::optional<std::string>("3") &&
+           cache.get("D") == std::optional<std::string>("4");
+}
+
+bool testOverwriteWhenFull() {
+    Cache cache(2);
+
+    cache.set("A", "1");
+    cache.set("B", "2");
+    cache.set("A", "updated");
+
+    return cache.size() == 2 &&
+           cache.get("A") == std::optional<std::string>("updated") &&
+           cache.get("B") == std::optional<std::string>("2");
+}
+
+bool testLRUWithTTLAndCleanup() {
+    Cache cache(3);
+
+    cache.set("A", "1", std::chrono::seconds(1));
+    cache.set("B", "2");
+    cache.set("C", "3");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+
+    if (cache.cleanupExpired() != 1) {
+        return false;
+    }
+
+    cache.set("D", "4");
+    cache.set("E", "5");
+
+    return cache.size() == 3 &&
+           cache.get("A") == std::nullopt &&
+           cache.get("B") == std::nullopt &&
+           cache.get("C") == std::optional<std::string>("3") &&
+           cache.get("D") == std::optional<std::string>("4") &&
+           cache.get("E") == std::optional<std::string>("5");
 }
 
 
@@ -201,6 +241,9 @@ int main() {
     runTest("Overwrite when full", testOverwriteWhenFull);
     runTest("Reject zero capacity", testZeroCapacityRejected);
     runTest("Default capacity", testDefaultCapacity);
+    runTest("LRU eviction", testLRUEviction);
+    runTest("Overwrite when full", testOverwriteWhenFull);
+    runTest("LRU with TTL and cleanup", testLRUWithTTLAndCleanup);
     std::cout << "\nResults: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
 }
