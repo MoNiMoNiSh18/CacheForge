@@ -1,4 +1,3 @@
-
 #include "cache/cache.h"
 
 #include <stdexcept>
@@ -12,11 +11,9 @@ Cache::Cache(std::size_t capacity)
         );
     }
 
-    // Reserve map capacity to reduce rehashing.
     data.reserve(this->capacity);
 }
 
-// Attach an entry as the most recently used entry.
 void Cache::attachToFront(CacheEntry* entry) noexcept {
     entry->previous = nullptr;
     entry->next = head;
@@ -30,7 +27,6 @@ void Cache::attachToFront(CacheEntry* entry) noexcept {
     head = entry;
 }
 
-// Remove an entry from the LRU chain.
 void Cache::detach(CacheEntry* entry) noexcept {
     if (entry->previous != nullptr) {
         entry->previous->next = entry->next;
@@ -48,7 +44,6 @@ void Cache::detach(CacheEntry* entry) noexcept {
     entry->next = nullptr;
 }
 
-// Move an existing entry to the front.
 void Cache::moveToFront(CacheEntry* entry) noexcept {
     if (head == entry) {
         return;
@@ -58,7 +53,6 @@ void Cache::moveToFront(CacheEntry* entry) noexcept {
     attachToFront(entry);
 }
 
-// Evict the least recently used entry.
 void Cache::evictLeastRecentlyUsed() {
     if (tail == nullptr) {
         return;
@@ -88,7 +82,6 @@ void Cache::set(
 
     auto it = data.find(key);
 
-    // Update existing entry.
     if (it != data.end()) {
         it->second.value = value;
         it->second.expiresAt = expiration;
@@ -97,7 +90,6 @@ void Cache::set(
         return;
     }
 
-    // Insert new entry.
     auto [newIt, inserted] = data.emplace(
         key,
         CacheEntry{value, expiration}
@@ -109,7 +101,6 @@ void Cache::set(
 
     CacheEntry* entry = &newIt->second;
 
-    // Store a pointer to the map-owned key.
     entry->key = &newIt->first;
 
     attachToFront(entry);

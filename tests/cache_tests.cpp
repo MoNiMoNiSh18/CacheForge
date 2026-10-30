@@ -266,7 +266,6 @@ bool testConcurrentAccess() {
     std::atomic<bool> success{true};
     std::vector<std::thread> workers;
 
-    // Phase 1: concurrent writes and reads.
     for (int t = 0; t < threadCount; ++t) {
         workers.emplace_back([&, t]() {
             for (int i = 0; i < entriesPerThread; ++i) {
@@ -298,7 +297,6 @@ bool testConcurrentAccess() {
 
     workers.clear();
 
-    // Phase 2: concurrently remove each thread's own entries.
     for (int t = 0; t < threadCount; ++t) {
         workers.emplace_back([&, t]() {
             for (int i = 0; i < entriesPerThread; ++i) {
@@ -363,10 +361,8 @@ bool testLRURemovalPositions() {
     cache.set("C", "3");
     cache.set("D", "4");
 
-    // Order: D -> C -> B -> A
     cache.get("B");
 
-    // Order: B -> D -> C -> A
     if (!cache.remove("B")) return false; // Head
     if (!cache.remove("C")) return false; // Middle
     if (!cache.remove("A")) return false; // Tail

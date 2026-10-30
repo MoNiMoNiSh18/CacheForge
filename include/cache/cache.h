@@ -12,10 +12,8 @@ struct CacheEntry {
 
     std::optional<std::chrono::steady_clock::time_point> expiresAt;
 
-    // Points to the key owned by the unordered_map.
     const std::string* key = nullptr;
 
-    // Intrusive LRU links.
     CacheEntry* previous = nullptr;
     CacheEntry* next = nullptr;
 };
@@ -67,7 +65,6 @@ private:
 
     CacheStats stats;
 
-    // LRU linked-list endpoints.
     CacheEntry* head = nullptr;
     CacheEntry* tail = nullptr;
 
