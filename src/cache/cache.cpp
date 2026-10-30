@@ -19,9 +19,7 @@ void Cache::set(
 ) {
     std::lock_guard<std::mutex> lock(mutex);
 
-    cleanupExpiredUnlocked();
-
-    std::optional<std::chrono::steady_clock::time_point> expiration;
+     std::optional<std::chrono::steady_clock::time_point> expiration;
 
     if (ttl != std::chrono::seconds::zero()) {
         expiration = std::chrono::steady_clock::now() + ttl;

@@ -39,3 +39,18 @@ add_test(
     NAME CacheForgeTests
     COMMAND cache_tests
 )
+
+add_executable(cache_benchmarks
+    benchmarks/cache_benchmarks.cpp
+    src/cache/cache.cpp
+)
+
+target_include_directories(cache_benchmarks
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(cache_benchmarks
+    PRIVATE
+        Threads::Threads
+)
