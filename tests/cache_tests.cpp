@@ -7,6 +7,49 @@
 #include <thread>
 #include <vector>
 
+bool testOverwriteRefreshesLRU() {
+    Cache cache(2);
+
+    cache.set("A", "1");
+    cache.set("B", "2");
+
+    cache.set("A", "updated");
+    cache.set("C", "3");
+
+    return cache.get("A") == std::optional<std::string>("updated") &&
+           cache.get("B") == std::nullopt &&
+           cache.get("C") == std::optional<std::string>("3");
+}
+
+bool testReadRefreshesLRU() {
+    Cache cache(2);
+
+    cache.set("A", "1");
+    cache.set("B", "2");
+
+    cache.get("A");
+    cache.set("C", "3");
+
+    return cache.get("A") == std::optional<std::string>("1") &&
+           cache.get("B") == std::nullopt &&
+           cache.get("C") == std::optional<std::string>("3");
+}
+
+bool testMultipleEvictionsUpdateStatistics() {
+    Cache cache(2);
+
+    cache.set("A", "1");
+    cache.set("B", "2");
+    cache.set("C", "3");
+    cache.set("D", "4");
+
+    const CacheStats stats = cache.getStats();
+
+    return cache.size() == 2 &&
+           stats.insertions == 4 &&
+           stats.evictions == 2;
+}
+
 bool testSetAndGet() {
     Cache cache;
     cache.set("user:101", "Monish");
@@ -312,6 +355,40 @@ bool testCacheHitRate() {
     return cache.getStats().hitRate() == 50.0;
 }
 
+bool testLRURemovalPositions() {
+    Cache cache(4);
+
+    cache.set("A", "1");
+    cache.set("B", "2");
+    cache.set("C", "3");
+    cache.set("D", "4");
+
+    // Order: D -> C -> B -> A
+    cache.get("B");
+
+    // Order: B -> D -> C -> A
+    if (!cache.remove("B")) return false; // Head
+    if (!cache.remove("C")) return false; // Middle
+    if (!cache.remove("A")) return false; // Tail
+
+    if (cache.size() != 1 ||
+        cache.get("D") != std::optional<std::string>("4")) {
+        return false;
+    }
+
+    cache.set("E", "5");
+    cache.set("F", "6");
+    cache.set("G", "7");
+    cache.set("H", "8");
+
+    return cache.size() == 4 &&
+           cache.get("D") == std::nullopt &&
+           cache.get("E") == std::optional<std::string>("5") &&
+           cache.get("F") == std::optional<std::string>("6") &&
+           cache.get("G") == std::optional<std::string>("7") &&
+           cache.get("H") == std::optional<std::string>("8");
+}
+
 int main() {
     int passed = 0;
     int failed = 0;
@@ -338,7 +415,9 @@ int main() {
     runTest("Cleanup removes multiple expired entries",testCleanupRemovesMultipleExpiredEntries);
     runTest("Cleanup preserves non-expired entries",testCleanupPreservesNonExpiredEntries);
     runTest("Capacity limit", testCapacityLimit);
-    runTest("Overwrite when full", testOverwriteWhenFull);
+    runTest("Overwrite refreshes LRU", testOverwriteRefreshesLRU);
+    runTest("Read refreshes LRU", testReadRefreshesLRU);
+    runTest("Multiple evictions update statistics",testMultipleEvictionsUpdateStatistics);    
     runTest("Reject zero capacity", testZeroCapacityRejected);
     runTest("Default capacity", testDefaultCapacity);
     runTest("LRU eviction", testLRUEviction);
@@ -347,6 +426,7 @@ int main() {
     runTest("Concurrent access", testConcurrentAccess);
     runTest("Cache statistics", testCacheStatistics);
     runTest("Cache hit rate", testCacheHitRate);
+    runTest("LRU removal positions", testLRURemovalPositions);
     std::cout << "\nResults: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
 }

@@ -77,7 +77,7 @@ void runBenchmark(
 
 TimedResult benchmarkMapWrites() {
     std::unordered_map<std::string, std::string> data;
-
+    data.reserve(OPERATIONS);
     const auto start = Clock::now();
 
     for (std::size_t i = 0; i < OPERATIONS; ++i) {
@@ -124,7 +124,7 @@ TimedResult benchmarkMapReads() {
     }
 
     std::size_t checksum = 0;
-
+    data.reserve(KEY_COUNT);
     const auto start = Clock::now();
 
     for (std::size_t i = 0; i < OPERATIONS; ++i) {
@@ -180,7 +180,7 @@ TimedResult benchmarkMapMixed() {
     }
 
     std::size_t checksum = 0;
-
+    data.reserve(KEY_COUNT);
     const auto start = Clock::now();
 
     for (std::size_t i = 0; i < OPERATIONS; ++i) {
@@ -244,7 +244,7 @@ int main() {
     prepareData();
 
     std::cout << "========================================\n";
-    std::cout << "       CacheForge V1.0 Benchmark\n";
+    std::cout << "       CacheForge V1.1 Benchmark\n";
     std::cout << "========================================\n";
 
     std::cout << "Operations:  " << OPERATIONS << '\n';

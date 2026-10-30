@@ -1,3 +1,4 @@
+
 #include "cache/cache.h"
 
 #include <stdexcept>
@@ -10,6 +11,66 @@ Cache::Cache(std::size_t capacity)
             "Cache capacity must be greater than zero"
         );
     }
+
+    // Reserve map capacity to reduce rehashing.
+    data.reserve(this->capacity);
+}
+
+// Attach an entry as the most recently used entry.
+void Cache::attachToFront(CacheEntry* entry) noexcept {
+    entry->previous = nullptr;
+    entry->next = head;
+
+    if (head != nullptr) {
+        head->previous = entry;
+    } else {
+        tail = entry;
+    }
+
+    head = entry;
+}
+
+// Remove an entry from the LRU chain.
+void Cache::detach(CacheEntry* entry) noexcept {
+    if (entry->previous != nullptr) {
+        entry->previous->next = entry->next;
+    } else {
+        head = entry->next;
+    }
+
+    if (entry->next != nullptr) {
+        entry->next->previous = entry->previous;
+    } else {
+        tail = entry->previous;
+    }
+
+    entry->previous = nullptr;
+    entry->next = nullptr;
+}
+
+// Move an existing entry to the front.
+void Cache::moveToFront(CacheEntry* entry) noexcept {
+    if (head == entry) {
+        return;
+    }
+
+    detach(entry);
+    attachToFront(entry);
+}
+
+// Evict the least recently used entry.
+void Cache::evictLeastRecentlyUsed() {
+    if (tail == nullptr) {
+        return;
+    }
+
+    CacheEntry* entry = tail;
+    const std::string* key = entry->key;
+
+    detach(entry);
+    data.erase(*key);
+
+    ++stats.evictions;
 }
 
 void Cache::set(
@@ -19,7 +80,7 @@ void Cache::set(
 ) {
     std::lock_guard<std::mutex> lock(mutex);
 
-     std::optional<std::chrono::steady_clock::time_point> expiration;
+    std::optional<std::chrono::steady_clock::time_point> expiration;
 
     if (ttl != std::chrono::seconds::zero()) {
         expiration = std::chrono::steady_clock::now() + ttl;
@@ -27,40 +88,37 @@ void Cache::set(
 
     auto it = data.find(key);
 
+    // Update existing entry.
     if (it != data.end()) {
         it->second.value = value;
         it->second.expiresAt = expiration;
 
-        usageOrder.splice(
-            usageOrder.begin(),
-            usageOrder,
-            it->second.lruPosition
-        );
-
+        moveToFront(&it->second);
         return;
     }
 
-    usageOrder.push_front(key);
+    // Insert new entry.
+    auto [newIt, inserted] = data.emplace(
+        key,
+        CacheEntry{value, expiration}
+    );
 
-    try {
-        data.emplace(
-            key,
-            CacheEntry{value, expiration, usageOrder.begin()}
-        );
-    } catch (...) {
-        usageOrder.pop_front();
-        throw;
+    if (!inserted) {
+        return;
     }
+
+    CacheEntry* entry = &newIt->second;
+
+    // Store a pointer to the map-owned key.
+    entry->key = &newIt->first;
+
+    attachToFront(entry);
+
     ++stats.insertions;
 
-   if (data.size() > capacity) {
-    const std::string leastUsedKey = usageOrder.back();
-
-    data.erase(leastUsedKey);
-    usageOrder.pop_back();
-
-    ++stats.evictions;
-}
+    if (data.size() > capacity) {
+        evictLeastRecentlyUsed();
+    }
 }
 
 std::optional<std::string> Cache::get(const std::string& key) {
@@ -72,31 +130,24 @@ std::optional<std::string> Cache::get(const std::string& key) {
         ++stats.misses;
         return std::nullopt;
     }
+
     const auto& expiration = it->second.expiresAt;
 
     if (expiration.has_value() &&
         std::chrono::steady_clock::now() >= expiration.value()) {
 
-        usageOrder.erase(it->second.lruPosition);
+        detach(&it->second);
         data.erase(it);
-        ++stats.misses;
 
+        ++stats.misses;
         return std::nullopt;
     }
-    usageOrder.splice(
-    usageOrder.begin(),
-    usageOrder,
-    it->second.lruPosition
-);
+
+    moveToFront(&it->second);
 
     ++stats.hits;
-    return it->second.value;
-        
-}
 
-CacheStats Cache::getStats() const {
-    std::lock_guard<std::mutex> lock(mutex);
-    return stats;
+    return it->second.value;
 }
 
 bool Cache::remove(const std::string& key) {
@@ -108,7 +159,7 @@ bool Cache::remove(const std::string& key) {
         return false;
     }
 
-    usageOrder.erase(it->second.lruPosition);
+    detach(&it->second);
     data.erase(it);
 
     return true;
@@ -126,14 +177,16 @@ std::size_t Cache::cleanupExpired() {
 
 std::size_t Cache::cleanupExpiredUnlocked() {
     std::size_t removed = 0;
+
+    const auto now = std::chrono::steady_clock::now();
+
     auto it = data.begin();
 
     while (it != data.end()) {
         const auto& expiration = it->second.expiresAt;
 
-        if (expiration.has_value() &&
-            std::chrono::steady_clock::now() >= expiration.value()) {
-            usageOrder.erase(it->second.lruPosition);
+        if (expiration.has_value() && now >= expiration.value()) {
+            detach(&it->second);
             it = data.erase(it);
             ++removed;
         } else {
@@ -142,4 +195,9 @@ std::size_t Cache::cleanupExpiredUnlocked() {
     }
 
     return removed;
+}
+
+CacheStats Cache::getStats() const {
+    std::lock_guard<std::mutex> lock(mutex);
+    return stats;
 }

@@ -1,9 +1,7 @@
-
 #pragma once
 
 #include <chrono>
 #include <cstddef>
-#include <list>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -11,8 +9,15 @@
 
 struct CacheEntry {
     std::string value;
+
     std::optional<std::chrono::steady_clock::time_point> expiresAt;
-    std::list<std::string>::iterator lruPosition;
+
+    // Points to the key owned by the unordered_map.
+    const std::string* key = nullptr;
+
+    // Intrusive LRU links.
+    CacheEntry* previous = nullptr;
+    CacheEntry* next = nullptr;
 };
 
 struct CacheStats {
@@ -57,9 +62,21 @@ public:
 
 private:
     std::unordered_map<std::string, CacheEntry> data;
-    std::list<std::string> usageOrder;
+
     const std::size_t capacity;
+
     CacheStats stats;
-    std::size_t cleanupExpiredUnlocked();
+
+    // LRU linked-list endpoints.
+    CacheEntry* head = nullptr;
+    CacheEntry* tail = nullptr;
+
     mutable std::mutex mutex;
+
+    void attachToFront(CacheEntry* entry) noexcept;
+    void detach(CacheEntry* entry) noexcept;
+    void moveToFront(CacheEntry* entry) noexcept;
+    void evictLeastRecentlyUsed();
+
+    std::size_t cleanupExpiredUnlocked();
 };
