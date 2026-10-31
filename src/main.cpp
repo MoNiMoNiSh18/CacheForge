@@ -1,5 +1,5 @@
 #include "cache/cache.h"
-
+#include "cache/persistence.h"
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
@@ -19,6 +19,8 @@ void showHelp() {
               << "SIZE                         Display current cache size\n"
               << "CLEANUP                      Remove expired entries\n"
               << "STATS                        Display cache statistics\n"
+              << "SAVE filename                Save cache contents to a file\n"
+              << "LOAD filename                Load cache contents from a file\n"
               << "HELP                         Show available commands\n"
               << "EXIT                         Exit CacheForge\n"
               << "====================================\n\n";
@@ -64,7 +66,7 @@ int main(int argc, char* argv[]) {
     Cache cache(capacity);
 
     std::cout << "====================================\n"
-              << "       CacheForge V1.2 CLI\n"
+              << "       CacheForge V1.3 CLI\n"
               << "====================================\n"
               << "Capacity: " << capacity << " entries\n"
               << "Type HELP to see available commands.\n";
@@ -197,6 +199,44 @@ int main(int argc, char* argv[]) {
                       << "Hit rate:   " << stats.hitRate() << "%\n"
                       << "======================================\n";
         }
+
+                else if (command == "SAVE") {
+            std::string filename;
+
+            if (!(input >> std::quoted(filename)) || hasExtraArgument(input)) {
+                std::cout << "Usage: SAVE filename\n";
+                continue;
+            }
+
+            std::string error;
+
+            if (CachePersistence::save(cache, filename, error)) {
+                std::cout << "Cache saved successfully to: "
+                        << filename << '\n';
+            } else {
+                std::cout << "Save failed: " << error << '\n';
+            }
+        }
+
+        else if (command == "LOAD") {
+                std::string filename;
+
+                if (!(input >> std::quoted(filename)) || hasExtraArgument(input)) {
+                    std::cout << "Usage: LOAD filename\n";
+                    continue;
+                }
+
+                std::string error;
+
+                if (CachePersistence::load(cache, filename, error)) {
+                    std::cout << "Cache loaded successfully from: "
+                            << filename << '\n'
+                            << "Restored entries: " << cache.size() << '\n'
+                            << "Statistics have been reset.\n";
+                } else {
+                    std::cout << "Load failed: " << error << '\n';
+                }
+            }
 
         else if (command == "HELP") {
             if (hasExtraArgument(input)) {

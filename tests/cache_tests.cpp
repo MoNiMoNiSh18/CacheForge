@@ -1,5 +1,8 @@
 #include <iostream>
 #include <string>
+#include "cache/persistence.h"
+#include <cstdio>
+#include <fstream>
 #include "cache/cache.h"
 #include <chrono>
 #include <thread>
@@ -385,6 +388,196 @@ bool testLRURemovalPositions() {
            cache.get("H") == std::optional<std::string>("8");
 }
 
+bool testPersistenceRoundTrip() {
+    const std::string filename = "cacheforge_roundtrip.dat";
+
+    Cache original(3);
+
+    original.set("A", "apple");
+    original.set("B", "banana");
+    original.set("C", "red cherry");
+
+    original.get("A"); 
+
+    std::string error;
+
+    if (!CachePersistence::save(original, filename, error)) {
+        std::cout << error << '\n';
+        return false;
+    }
+
+    Cache restored(3);
+
+    if (!CachePersistence::load(restored, filename, error)) {
+        std::cout << error << '\n';
+        return false;
+    }
+
+    restored.set("D", "dragonfruit");
+
+    bool passed =
+        restored.get("B") == std::nullopt &&
+        restored.get("A") == std::optional<std::string>("apple") &&
+        restored.get("C") == std::optional<std::string>("red cherry") &&
+        restored.get("D") == std::optional<std::string>("dragonfruit");
+
+    std::remove(filename.c_str());
+
+    return passed;
+}
+
+bool testPersistenceCapacity() {
+    const std::string filename = "cacheforge_capacity.dat";
+
+    Cache original(4);
+
+    original.set("A", "one");
+    original.set("B", "two");
+    original.set("C", "three");
+    original.set("D", "four");
+
+    std::string error;
+
+    if (!CachePersistence::save(original, filename, error)) {
+        return false;
+    }
+
+    Cache restored(2);
+
+    if (!CachePersistence::load(restored, filename, error)) {
+        std::remove(filename.c_str());
+        return false;
+    }
+
+    bool passed =
+        restored.size() == 2 &&
+        restored.get("D") == std::optional<std::string>("four") &&
+        restored.get("C") == std::optional<std::string>("three") &&
+        restored.get("B") == std::nullopt &&
+        restored.get("A") == std::nullopt;
+
+    std::remove(filename.c_str());
+
+    return passed;
+}
+
+bool testPersistenceCorruptedFile() {
+    const std::string filename = "cacheforge_corrupted.dat";
+
+    {
+        std::ofstream file(filename);
+        file << "INVALID_FORMAT\n";
+        file << "corrupted data\n";
+    }
+
+    Cache cache(5);
+    cache.set("existing", "preserved");
+
+    std::string error;
+
+    bool loaded = CachePersistence::load(cache, filename, error);
+
+    bool passed =
+        !loaded &&
+        cache.size() == 1 &&
+        cache.get("existing") ==
+            std::optional<std::string>("preserved");
+
+    std::remove(filename.c_str());
+
+    return passed;
+}
+
+bool testPersistenceRemainingTTL() {
+    const std::string filename = "cacheforge_ttl.dat";
+
+    Cache original(2);
+
+    original.set("session", "active", std::chrono::seconds(2));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+    std::string error;
+
+    if (!CachePersistence::save(original, filename, error)) {
+        return false;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1800));
+
+    Cache restored(2);
+
+    if (!CachePersistence::load(restored, filename, error)) {
+        std::remove(filename.c_str());
+        return false;
+    }
+
+    if (restored.get("session") !=
+        std::optional<std::string>("active")) {
+        std::remove(filename.c_str());
+        return false;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1600));
+
+    bool passed = restored.get("session") == std::nullopt;
+
+    std::remove(filename.c_str());
+
+    return passed;
+}
+
+bool testPersistenceTruncatedFile() {
+    const std::string filename = "truncated_cache.dat";
+
+    {
+        std::ofstream file(filename);
+        file << "CACHEFORGE 1\n";
+        file << "2\n";
+        file << "-1 \"first\" \"value\"\n";
+    }
+
+    Cache cache(5);
+    cache.set("existing", "preserved");
+
+    std::string error;
+    bool loaded = CachePersistence::load(cache, filename, error);
+
+    bool passed =
+        !loaded &&
+        cache.get("existing").value_or("") == "preserved";
+
+    std::remove(filename.c_str());
+
+    return passed;
+}
+
+bool testPersistenceDuplicateKeys() {
+    const std::string filename = "duplicate_cache.dat";
+
+    {
+        std::ofstream file(filename);
+        file << "CACHEFORGE 1\n";
+        file << "2\n";
+        file << "-1 \"same\" \"first\"\n";
+        file << "-1 \"same\" \"second\"\n";
+    }
+
+    Cache cache(5);
+    cache.set("existing", "preserved");
+
+    std::string error;
+    bool loaded = CachePersistence::load(cache, filename, error);
+
+    bool passed =
+        !loaded &&
+        cache.get("existing").value_or("") == "preserved";
+
+    std::remove(filename.c_str());
+
+    return passed;
+}
+
 int main() {
     int passed = 0;
     int failed = 0;
@@ -423,6 +616,12 @@ int main() {
     runTest("Cache statistics", testCacheStatistics);
     runTest("Cache hit rate", testCacheHitRate);
     runTest("LRU removal positions", testLRURemovalPositions);
+    runTest("Persistence round trip and LRU", testPersistenceRoundTrip);
+    runTest("Persistence respects capacity", testPersistenceCapacity);
+    runTest("Persistence rejects corrupted file", testPersistenceCorruptedFile);
+    runTest("Persistence preserves remaining TTL", testPersistenceRemainingTTL);
+    runTest("Persistence rejects truncated file", testPersistenceTruncatedFile);
+    runTest("Persistence rejects duplicate keys", testPersistenceDuplicateKeys);
     std::cout << "\nResults: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
 }

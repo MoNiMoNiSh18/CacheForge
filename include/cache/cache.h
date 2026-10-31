@@ -35,6 +35,8 @@ struct CacheStats {
     }
 };
 
+class CachePersistence;
+
 class Cache {
 public:
     explicit Cache(std::size_t capacity = 1000);
@@ -60,7 +62,7 @@ public:
 
 private:
     std::unordered_map<std::string, CacheEntry> data;
-
+    friend class CachePersistence;
     const std::size_t capacity;
 
     CacheStats stats;

@@ -14,6 +14,7 @@ find_package(Threads REQUIRED)
 add_executable(cacheforge
     src/main.cpp
     src/cache/cache.cpp
+    src/cache/persistence.cpp
 )
 
 target_include_directories(cacheforge
@@ -24,6 +25,7 @@ target_include_directories(cacheforge
 add_executable(cache_tests
     tests/cache_tests.cpp
     src/cache/cache.cpp
+    src/cache/persistence.cpp
 )
 
 target_include_directories(cache_tests
