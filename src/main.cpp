@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
     Cache cache(capacity);
 
     std::cout << "====================================\n"
-              << "       CacheForge V1.3 CLI\n"
+              << "       CacheForge V1.0.0 CLI\n"
               << "====================================\n"
               << "Capacity: " << capacity << " entries\n"
               << "Type HELP to see available commands.\n";

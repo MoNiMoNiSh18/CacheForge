@@ -1,4 +1,5 @@
 #include <iostream>
+#include <filesystem>
 #include <string>
 #include "cache/persistence.h"
 #include <cstdio>
@@ -578,6 +579,61 @@ bool testPersistenceDuplicateKeys() {
     return passed;
 }
 
+bool testFailedSavePreservesExistingFile() {
+    const std::string filename = "protected_cache.dat";
+    const std::string temporary = filename + ".tmp";
+
+    {
+        std::ofstream file(filename);
+        file << "ORIGINAL DATA";
+    }
+
+    std::filesystem::create_directory(temporary);
+
+    Cache cache(5);
+    cache.set("new", "data");
+
+    std::string error;
+    bool saved = CachePersistence::save(cache, filename, error);
+
+    std::ifstream file(filename);
+    std::string contents;
+    std::getline(file, contents);
+
+    file.close();
+
+    std::filesystem::remove(temporary);
+    std::remove(filename.c_str());
+
+    return !saved && contents == "ORIGINAL DATA";
+}
+
+bool testPersistenceValidatesDiscardedEntryTTL() {
+    const std::string filename = "invalid_discarded_ttl.dat";
+
+    {
+        std::ofstream file(filename);
+        file << "CACHEFORGE 1\n";
+        file << "2\n";
+        file << "-1 \"first\" \"valid\"\n";
+        file << "9223372036854775807 \"second\" \"invalid\"\n";
+    }
+
+    Cache cache(1);
+    cache.set("existing", "preserved");
+
+    std::string error;
+    bool loaded = CachePersistence::load(cache, filename, error);
+
+    bool preserved =
+        !loaded &&
+        cache.get("existing").value_or("") == "preserved";
+
+    std::remove(filename.c_str());
+
+    return preserved;
+}
+
 int main() {
     int passed = 0;
     int failed = 0;
@@ -622,6 +678,8 @@ int main() {
     runTest("Persistence preserves remaining TTL", testPersistenceRemainingTTL);
     runTest("Persistence rejects truncated file", testPersistenceTruncatedFile);
     runTest("Persistence rejects duplicate keys", testPersistenceDuplicateKeys);
+    runTest("Failed save preserves existing file",testFailedSavePreservesExistingFile);
+    runTest("Persistence validates discarded entry TTL",testPersistenceValidatesDiscardedEntryTTL);
     std::cout << "\nResults: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
 }

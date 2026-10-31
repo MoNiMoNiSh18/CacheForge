@@ -1,17 +1,26 @@
 #include "cache/persistence.h"
 
-#include <mutex>
-#include <utility>
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <limits>
+#include <mutex>
 #include <string>
+#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace {
     constexpr const char* FILE_MAGIC = "CACHEFORGE";
@@ -23,6 +32,34 @@ namespace {
         std::string key;
         std::string value;
     };
+
+    bool replaceFile(
+        const std::filesystem::path& temporary,
+        const std::filesystem::path& destination,
+        std::string& error
+    ) {
+#ifdef _WIN32
+        if (!MoveFileExW(
+                temporary.c_str(),
+                destination.c_str(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+            )) {
+            error = "Unable to replace save file. Windows error: "
+                  + std::to_string(GetLastError());
+            return false;
+        }
+#else
+        std::error_code ec;
+        std::filesystem::rename(temporary, destination, ec);
+
+        if (ec) {
+            error = "Unable to replace save file: " + ec.message();
+            return false;
+        }
+#endif
+
+        return true;
+    }
 }
 
 bool CachePersistence::save(
@@ -43,7 +80,7 @@ bool CachePersistence::save(
 
         const auto now = std::chrono::steady_clock::now();
 
-        // Traverse from most recently used to least recently used.
+        // Preserve MRU-to-LRU ordering.
         for (CacheEntry* entry = cache.head;
              entry != nullptr;
              entry = entry->next) {
@@ -71,12 +108,25 @@ bool CachePersistence::save(
         }
     }
 
-    std::ofstream file(filename, std::ios::out | std::ios::trunc);
+    const std::filesystem::path destination(filename);
+    std::filesystem::path temporary = destination;
+    temporary += ".tmp";
+
+    std::ofstream file(
+        temporary,
+        std::ios::out | std::ios::trunc
+    );
 
     if (!file.is_open()) {
-        error = "Unable to open file for writing: " + filename;
+        error = "Unable to open temporary save file: "
+              + temporary.string();
         return false;
     }
+
+    auto cleanupTemporary = [&temporary]() {
+        std::error_code ec;
+        std::filesystem::remove(temporary, ec);
+    };
 
     file << FILE_MAGIC << ' ' << FILE_VERSION << '\n';
     file << snapshot.size() << '\n';
@@ -90,7 +140,22 @@ bool CachePersistence::save(
     file.flush();
 
     if (!file.good()) {
-        error = "Failed while writing cache data.";
+        file.close();
+        cleanupTemporary();
+        error = "Failed while writing temporary cache data.";
+        return false;
+    }
+
+    file.close();
+
+    if (file.fail()) {
+        cleanupTemporary();
+        error = "Failed while closing temporary cache file.";
+        return false;
+    }
+
+    if (!replaceFile(temporary, destination, error)) {
+        cleanupTemporary();
         return false;
     }
 
@@ -166,30 +231,30 @@ bool CachePersistence::load(
         return false;
     }
 
-    std::unordered_map<std::string, CacheEntry> restored;
-
-    restored.reserve(std::min(entryCount, cache.capacity));
-
-    CacheEntry* newHead = nullptr;
-    CacheEntry* newTail = nullptr;
-
     const auto now = std::chrono::steady_clock::now();
 
     const auto maxRemaining =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::time_point::max() - now
         ).count();
+    for (const auto& entry : entries) {
+        if (entry.remainingTTL > maxRemaining) {
+            error = "TTL value exceeds the supported time range.";
+            return false;
+        }
+    }
+
+    std::unordered_map<std::string, CacheEntry> restored;
+    restored.reserve(std::min(entryCount, cache.capacity));
+
+    CacheEntry* newHead = nullptr;
+    CacheEntry* newTail = nullptr;
 
     for (std::size_t i = 0;
          i < entries.size() && i < cache.capacity;
          ++i) {
 
         const auto& saved = entries[i];
-
-        if (saved.remainingTTL > maxRemaining) {
-            error = "TTL value exceeds the supported time range.";
-            return false;
-        }
 
         CacheEntry restoredEntry;
         restoredEntry.value = saved.value;
@@ -228,10 +293,8 @@ bool CachePersistence::load(
         std::lock_guard<std::mutex> lock(cache.mutex);
 
         cache.data.swap(restored);
-
         cache.head = newHead;
         cache.tail = newTail;
-
         cache.stats = CacheStats{};
     }
 

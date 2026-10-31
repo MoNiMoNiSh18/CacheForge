@@ -1,23 +1,26 @@
 # CacheForge
 
-**A thread-safe, in-memory key-value cache engine built with C++17, featuring TTL expiration, LRU eviction, cache statistics, and an interactive command-line interface.**
+**A thread-safe, in-memory key-value cache engine built with C++17, featuring TTL expiration, LRU eviction, cache statistics, file-based persistence, and an interactive command-line interface.**
 
 CacheForge is a lightweight caching engine designed to explore how in-memory storage systems work internally. It combines hash-map-based storage with an intrusive doubly linked list for efficient Least Recently Used (LRU) tracking.
 
 ## Features
 
 - **Fast Key-Value Storage:** Uses `std::unordered_map` for average O(1) lookup, insertion, and deletion.
-- **TTL Expiration:** Supports optional time-to-live values for individual cache entries.
+- **TTL Expiration:** Supports optional time-to-live values for individual entries.
 - **Lazy Expiration:** Expired entries are automatically removed when accessed.
 - **Explicit Cleanup:** Removes expired entries through `cleanupExpired()`.
 - **LRU Eviction:** Automatically evicts the least recently used entry when capacity is reached.
-- **Intrusive LRU Tracking:** Uses pointers within cache entries to maintain the doubly linked list, avoiding a separate list node and duplicated key storage.
-- **Configurable Capacity:** Allows the cache capacity to be specified during construction or when launching the CLI.
-- **Thread Safety:** Protects public cache operations using `std::mutex` and `std::lock_guard`.
+- **Intrusive LRU Tracking:** Uses pointers within cache entries to maintain the doubly linked list.
+- **Configurable Capacity:** Specify the maximum cache capacity during construction or CLI launch.
+- **Thread Safety:** Protects public cache operations using mutex-based synchronization.
 - **Cache Statistics:** Tracks hits, misses, insertions, evictions, and hit rate.
-- **Interactive CLI:** Provides commands to interact with the cache without writing additional C++ programs.
-- **Automated Testing:** Includes tests for core operations, TTL, capacity, LRU behaviour, statistics, and concurrent access.
+- **File Persistence:** Save cache contents to a file and restore them later.
+- **Persistence Validation:** Checks file format, entry count, TTL values, duplicate keys, and malformed input.
+- **Interactive CLI:** Provides commands to interact with the cache.
+- **Automated Testing:** Includes tests for core operations, TTL, LRU, concurrency, statistics, and persistence.
 - **Comparative Benchmarks:** Measures CacheForge against `std::unordered_map` across different workloads.
+- **Installable CMake Library:** Supports integration into external C++ projects using `find_package()`.
 
 ## Architecture
 
@@ -27,8 +30,6 @@ CacheForge uses two primary data structures:
 |---|---|
 | `std::unordered_map` | Stores keys and cache entries |
 | Intrusive doubly linked list | Maintains LRU usage order |
-
-Each cache entry contains its value, optional expiration timestamp, and pointers connecting it to neighbouring entries.
 
 The most recently used entry is maintained at the head of the list, while the least recently used entry is maintained at the tail.
 
@@ -40,28 +41,29 @@ When an entry is accessed or updated, it moves to the head. When the cache reach
 2. The corresponding cache entry is attached to the front of the LRU list.
 3. Successful reads refresh the entry's LRU position.
 4. Expired entries are removed when accessed or during explicit cleanup.
-5. When capacity is exceeded, the least recently used entry is removed.
+5. When capacity is reached, the least recently used entry is evicted.
 
 ## Project Structure
 
 ```text
 CacheForge/
-│
+├── cmake/
+│   └── CacheForgeConfig.cmake.in
+├── examples/
+│   └── embedded_cache.cpp
 ├── include/
 │   └── cache/
-│       └── cache.h
-│
+│       ├── cache.h
+│       └── persistence.h
 ├── src/
 │   ├── cache/
-│   │   └── cache.cpp
+│   │   ├── cache.cpp
+│   │   └── persistence.cpp
 │   └── main.cpp
-│
 ├── tests/
 │   └── cache_tests.cpp
-│
 ├── benchmarks/
 │   └── cache_benchmarks.cpp
-│
 ├── CMakeLists.txt
 ├── README.md
 └── .gitignore
@@ -108,11 +110,9 @@ To specify a custom capacity:
 
 This starts CacheForge with a maximum capacity of 500 entries.
 
-The application rejects zero, negative, and invalid capacity arguments.
+The application rejects zero and invalid capacity arguments.
 
 ## Interactive CLI
-
-CacheForge provides an interactive command-line interface.
 
 | Command | Description |
 |---|---|
@@ -123,6 +123,8 @@ CacheForge provides an interactive command-line interface.
 | `SIZE` | Display the current number of entries |
 | `CLEANUP` | Remove expired entries |
 | `STATS` | Display cache statistics |
+| `SAVE filename` | Save cache contents to a file |
+| `LOAD filename` | Restore cache contents from a file |
 | `HELP` | Display available commands |
 | `EXIT` | Exit the application |
 
@@ -138,19 +140,18 @@ Value: monish
 CacheForge> SET greeting "hello world"
 Stored key: greeting
 
-CacheForge> GET greeting
-Value: hello world
-
 CacheForge> SET session abc123 60
 Stored key: session
 
 CacheForge> SIZE
 Current cache size: 3
 
-CacheForge> STATS
+CacheForge> SAVE cache.dat
+Cache saved successfully.
 
+CacheForge> STATS
 ========== Cache Statistics ==========
-Hits:       2
+Hits:       1
 Misses:     0
 Insertions: 3
 Evictions:  0
@@ -187,12 +188,41 @@ Since accessing A refreshes its LRU position, B becomes the least recently used 
 
 This demonstrates automatic capacity management through LRU eviction.
 
+## File Persistence
+
+CacheForge supports saving and restoring cache contents through `CachePersistence`.
+
+### Save a cache
+
+```text
+CacheForge> SET username monish
+CacheForge> SAVE cache.dat
+```
+
+### Load a cache
+
+```text
+CacheForge> LOAD cache.dat
+```
+
+### Persistence behaviour
+
+- Uses a versioned file format with the `CACHEFORGE 1` header.
+- Saves entries in most-recently-used to least-recently-used order.
+- Stores the remaining TTL of entries.
+- Remaining TTL is effectively paused while the cache is closed.
+- Restores the LRU ordering when loading.
+- When loading into a smaller-capacity cache, retains the most recently used entries.
+- Resets cache statistics after a successful load.
+- Validates file contents before replacing the existing cache state.
+- Uses a temporary file and replacement operation during saving to reduce the risk of leaving a partially written destination file.
+
 ## Core API
 
-CacheForge can also be used independently of the CLI.
+CacheForge can also be integrated into independent C++ applications.
 
 ```cpp
-#include "cache/cache.h"
+#include <cache/cache.h>
 
 #include <chrono>
 #include <iostream>
@@ -228,6 +258,55 @@ int main() {
 | `cleanupExpired()` | Remove expired entries |
 | `getStats()` | Return a snapshot of cache statistics |
 
+## Using CacheForge as an Installed CMake Library
+
+CacheForge can be installed and consumed by another CMake-based C++ project.
+
+### Install CacheForge
+
+From the CacheForge project directory:
+
+```cmd
+cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release --config Release
+cmake --install build-release --config Release --prefix install
+```
+
+### Integrate into another project
+
+In the consumer project's `CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.16)
+
+project(MyApplication LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(CacheForge 1.0 CONFIG REQUIRED)
+
+add_executable(my_app main.cpp)
+
+target_link_libraries(my_app
+    PRIVATE CacheForge::cacheforge
+)
+```
+
+Configure the consumer project with the CacheForge installation prefix:
+
+```cmd
+cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/path/to/CacheForge/install"
+cmake --build build --config Release
+```
+
+Then include the public headers:
+
+```cpp
+#include <cache/cache.h>
+#include <cache/persistence.h>
+```
+
 ## Cache Statistics
 
 CacheForge maintains the following metrics:
@@ -250,7 +329,7 @@ When no retrievals have occurred, the hit rate is zero.
 
 ## Testing
 
-The project includes an automated test suite covering:
+The automated test suite covers:
 
 - Basic insertion and retrieval
 - Missing keys and removal
@@ -258,12 +337,18 @@ The project includes an automated test suite covering:
 - TTL expiration
 - Explicit expired-entry cleanup
 - Capacity validation
-- LRU eviction
-- LRU refresh on reads and overwrites
+- LRU eviction and refresh
 - Multiple evictions and statistics
 - Concurrent access
 - Cache hit-rate calculations
-- LRU list removal from head, middle, and tail positions
+- LRU list removal from different positions
+- Persistence save and load
+- LRU restoration
+- Capacity handling during loading
+- Corrupted, truncated, and duplicate-entry files
+- Remaining TTL restoration
+- Failed-save handling
+- Persistence input validation
 
 Run the tests using:
 
@@ -277,6 +362,8 @@ To execute the test program directly:
 ```cmd
 .\build-release\Release\cache_tests.exe
 ```
+
+The current development test run reports **32 passed, 0 failed**.
 
 ## Benchmarking
 
@@ -304,9 +391,9 @@ cmake --build build-release --config Release
 .\build-release\Release\cache_benchmarks.exe
 ```
 
-### Benchmark Results
+### Representative Benchmark Results
 
-Representative Release-mode measurements from the development machine:
+Release-mode measurements from the development machine:
 
 | Workload | `std::unordered_map` | CacheForge |
 |---|---:|---:|
@@ -330,8 +417,6 @@ All corresponding benchmark checksums matched.
 
 ## Technical Concepts Explored
 
-This project explores practical C++ concepts, including:
-
 - Hash tables and average O(1) operations
 - Doubly linked lists and intrusive data structures
 - LRU cache eviction
@@ -339,21 +424,15 @@ This project explores practical C++ concepts, including:
 - Iterators, pointers, and object lifetime
 - `std::optional`
 - Mutexes and thread safety
-- CMake and modular project organization
+- File persistence and validation
+- CMake library packaging and installation
 - Automated testing and benchmarking
 - Performance measurement and optimization
-
-## Current Scope
-
-CacheForge currently provides an in-memory cache engine and interactive CLI.
-
-File-based persistence, networking, distributed caching, and HTTP interfaces are not part of the implemented version.
 
 ## Future Improvements
 
 Potential future directions:
 
-- File-based cache persistence
 - REST API integration
 - Cache monitoring interface
 - Configurable eviction policies

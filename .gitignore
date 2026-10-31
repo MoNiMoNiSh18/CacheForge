@@ -23,3 +23,15 @@ install_manifest.txt
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local installation output
+install/
+
+# Persistence files and temporary save files
+*.dat
+*.tmp
+
+# Generated Visual Studio / CMake files
+*.sln
+*.vcxproj*
+*.pdb
